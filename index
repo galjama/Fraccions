@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraccionando: El Juego de Mates</title>
+    <style>
+        :root {
+            --primary: #4a90e2;
+            --secondary: #f39c12;
+            --success: #27ae60;
+            --error: #e74c3c;
+            --bg: #f0f4f8;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #2c3e50; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; }
+        
+        h1 { color: var(--primary); margin-bottom: 10px; }
+        
+        .tabs { display: flex; gap: 10px; justify-content: center; margin-bottom: 25px; }
+        .tab-btn { padding: 12px 25px; cursor: pointer; border: none; background: #d1d8e0; border-radius: 12px; font-weight: bold; font-size: 1rem; transition: 0.3s; }
+        .tab-btn.active { background: var(--primary); color: white; transform: translateY(-3px); box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3); }
+
+        #feedback { min-height: 50px; margin-bottom: 15px; font-weight: bold; padding: 15px; border-radius: 12px; font-size: 1.1rem; transition: 0.3s; display: flex; align-items: center; justify-content: center; }
+        .correct { color: var(--success); background: #eafaf1; border: 2px solid var(--success); }
+        .incorrect { color: var(--error); background: #fdedec; border: 2px solid var(--error); }
+
+        .game-section { display: none; flex-direction: column; align-items: center; animation: fadeIn 0.5s; }
+        .game-section.active { display: flex; }
+
+        .viz-outer { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 20px; margin: 20px 0; padding: 20px; background: #fafafa; border-radius: 15px; border: 1px dashed #ccc; width: 100%; box-sizing: border-box; }
+        
+        .slice { stroke: #2c3e50; stroke-width: 2; fill: #fff; cursor: pointer; transition: fill 0.2s; }
+        .slice.static-fill { fill: #3498db; cursor: default; }
+        .slice.selected { fill: #f1c40f; }
+        
+        .fraction-label { font-size: 2.5rem; font-weight: 900; color: #2c3e50; margin-right: 20px; border-right: 3px solid #eee; padding-right: 25px; }
+        
+        .options-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 20px; }
+        .option-btn { padding: 15px 30px; min-width: 80px; border: 2px solid var(--primary); border-radius: 15px; background: white; cursor: pointer; font-size: 1.3rem; font-weight: bold; color: var(--primary); transition: 0.2s; }
+        .option-btn:hover { background: var(--primary); color: white; transform: scale(1.05); }
+
+        .check-btn { margin-top: 20px; padding: 15px 40px; background: var(--success); color: white; border: none; border-radius: 50px; font-size: 1.2rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3); }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🍕 Diver-Mates: Fracciones</h1>
+    
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('identificar')">1. Identificar</button>
+        <button class="tab-btn" onclick="switchTab('pintar')">2. Pintar</button>
+        <button class="tab-btn" onclick="switchTab('irreductible')">3. Simplificar</button>
+    </div>
+
+    <div id="feedback">¡Elige un reto para empezar!</div>
+
+    <div id="identificar" class="game-section active">
+        <p style="font-size: 1.2rem;">¿Qué fracción representan las figuras sombreadas en azul?</p>
+        <div id="viz-identificar" class="viz-outer"></div>
+        <div id="opts-identificar" class="options-grid"></div>
+    </div>
+
+    <div id="pintar" class="game-section">
+        <p style="font-size: 1.2rem;">Haz clic en las partes hasta pintar: <b id="target-pintar" style="font-size: 1.8rem; color: var(--primary);">--</b></p>
+        <div id="viz-pintar" class="viz-outer"></div>
+        <button class="check-btn" onclick="checkPintar()">Comprobar Resultado</button>
+    </div>
+
+    <div id="irreductible" class="game-section">
+        <p style="font-size: 1.2rem;">Busca la fracción <b>irreductible</b> equivalente a la figura:</p>
+        <div class="viz-outer">
+            <div id="label-irreductible" class="fraction-label"></div>
+            <div id="viz-irreductible" style="display: flex; gap:10px;"></div>
+        </div>
+        <div id="opts-irreductible" class="options-grid"></div>
+    </div>
+</div>
+
+<script>
+    let currentTab = 'identificar';
+    let currentData = {};
+    let lockGame = false;
+    let nextTimeout;
+
+    // --- UTILIDADES ---
+    const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+    const mcd = (a, b) => b === 0 ? a : mcd(b, a % b);
+
+    function switchTab(tabId) {
+        if(lockGame) return;
+        clearTimeout(nextTimeout);
+        currentTab = tabId;
+        document.querySelectorAll('.game-section, .tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById(tabId).classList.add('active');
+        const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.innerText.toLowerCase().includes(tabId.substring(0,3)));
+        if(btn) btn.classList.add('active');
+        setFeedback("¡Nuevo reto!", "");
+        initLevel();
+    }
+
+    function setFeedback(msg, type = "") {
+        const f = document.getElementById('feedback');
+        f.innerText = msg;
+        f.className = type;
+    }
+
+    // --- MOTOR DE DIBUJO ---
+    function generateSVG(slices, fillCount, interactive, type) {
+        const size = 130;
+        let svg = `<svg width="${size}" height="${size}" viewBox="0 0 100 100" style="margin:5px">`;
+        
+        if (type === 'circle') {
+            for (let i = 0; i < slices; i++) {
+                const a1 = (i * 360) / slices - 90;
+                const a2 = ((i + 1) * 360) / slices - 90;
+                const x1 = 50 + 45 * Math.cos(Math.PI * a1 / 180);
+                const y1 = 50 + 45 * Math.sin(Math.PI * a1 / 180);
+                const x2 = 50 + 45 * Math.cos(Math.PI * a2 / 180);
+                const y2 = 50 + 45 * Math.sin(Math.PI * a2 / 180);
+                const large = (a2 - a1) > 180 ? 1 : 0;
+                const d = `M 50 50 L ${x1} ${y1} A 45 45 0 ${large} 1 ${x2} ${y2} Z`;
+                const fillClass = i < fillCount ? (interactive ? 'selected' : 'static-fill') : '';
+                svg += `<path d="${d}" class="slice ${fillClass}" onclick="clickSlice(this, ${interactive})"></path>`;
+            }
+        } else { // Rectángulo
+            const w = 80 / slices;
+            for (let i = 0; i < slices; i++) {
+                const fillClass = i < fillCount ? (interactive ? 'selected' : 'static-fill') : '';
+                svg += `<rect x="${10 + i*w}" y="20" width="${w}" height="60" class="slice ${fillClass}" onclick="clickSlice(this, ${interactive})"></rect>`;
+            }
+        }
+        return svg + `</svg>`;
+    }
+
+    function clickSlice(el, interactive) {
+        if (!interactive || lockGame) return;
+        el.classList.toggle('selected');
+        setFeedback("Pintando...", "");
+    }
+
+    // --- GENERACIÓN DE NIVELES ---
+    function initLevel() {
+        lockGame = false;
+        const type = Math.random() > 0.5 ? 'circle' : 'rect';
+        
+        if (currentTab === 'identificar') {
+            const den = [2, 3, 4, 5, 6, 8][getRandomInt(0, 5)];
+            // 40% de probabilidad de ser impropia (más de una figura)
+            const num = Math.random() > 0.6 ? den + getRandomInt(1, den) : getRandomInt(1, den - 1);
+            
+            currentData = { num, den };
+            const container = document.getElementById('viz-identificar');
+            container.innerHTML = "";
+            const totalFigs = Math.ceil(num / den);
+            for(let i=0; i < totalFigs; i++) {
+                const fillThis = Math.min(num - (i * den), den);
+                container.innerHTML += generateSVG(den, Math.max(0, fillThis), false, type);
+            }
+            
+            renderButtons('opts-identificar', [`${num}/${den}`, `${num+1}/${den}`, `${den}/${num}`]);
+        }
+        
+        else if (currentTab === 'pintar') {
+            const den = [3, 4, 5, 6][getRandomInt(0, 3)];
+            const num = Math.random() > 0.7 ? den + getRandomInt(1, 2) : getRandomInt(1, den - 1);
+            currentData = { num, den };
+            document.getElementById('target-pintar').innerText = `${num}/${den}`;
+            
+            const container = document.getElementById('viz-pintar');
+            container.innerHTML = "";
+            const totalFigs = Math.ceil(num / den);
+            for(let i=0; i < totalFigs; i++) container.innerHTML += generateSVG(den, 0, true, type);
+        }
+        
+        else if (currentTab === 'irreductible') {
+            // Fracciones base irreductibles para variar
+            const bases = [
+                {n:1, d:2}, {n:1, d:3}, {n:2, d:3}, {n:1, d:4}, {n:3, d:4}, 
+                {n:1, d:5}, {n:2, d:5}, {n:3, d:5}, {n:4, d:5}, {n:1, d:6}
+            ];
+            const base = bases[getRandomInt(0, bases.length - 1)];
+            const factor = getRandomInt(2, 4);
+            const nComp = base.n * factor;
+            const dComp = base.d * factor;
+            
+            currentData = { num: base.n, den: base.d };
+            document.getElementById('label-irreductible').innerText = `${nComp}/${dComp}`;
+            
+            const container = document.getElementById('viz-irreductible');
+            container.innerHTML = generateSVG(dComp, nComp, false, type);
+            
+            renderButtons('opts-irreductible', [`${base.n}/${base.d}`, `${base.n}/${base.d+1}`, `${base.n+1}/${base.d}`]);
+        }
+    }
+
+    function renderButtons(containerId, array) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = "";
+        [...new Set(array)].sort(() => Math.random() - 0.5).forEach(ans => {
+            container.innerHTML += `<button class="option-btn" onclick="checkAnswer('${ans}')">${ans}</button>`;
+        });
+    }
+
+    // --- VERIFICACIONES ---
+    function checkAnswer(chosen) {
+        if(lockGame) return;
+        if (chosen === `${currentData.num}/${currentData.den}`) {
+            success();
+        } else {
+            setFeedback("❌ ¡Incorrecto! Prueba otra vez.", "incorrect");
+        }
+    }
+
+    function checkPintar() {
+        if(lockGame) return;
+        const selected = document.querySelectorAll('#viz-pintar .selected').length;
+        if (selected === currentData.num) {
+            success();
+        } else {
+            setFeedback(`❌ Has pintado ${selected}/${currentData.den}. ¡Sigue intentándolo!`, "incorrect");
+        }
+    }
+
+    function success() {
+        lockGame = true;
+        setFeedback("✅ ¡EXCELENTE! Siguiente ejercicio en 5 segundos...", "correct");
+        nextTimeout = setTimeout(() => {
+            initLevel();
+        }, 5000);
+    }
+
+    // Iniciar juego por primera vez
+    initLevel();
+</script>
+
+</body>
+</html>
